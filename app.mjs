@@ -123,7 +123,19 @@ export function mount(host = {}) {
     }
     const ctx = await context();
     status.textContent = 'Rendering…';
-    const reply = await ctx.files.request('image-render',{resource:'image-studio',prompt,seed,size:Number(find('[name=size]').value),reference:encoded});
+    const ticket = await ctx.files.request('image-render',{resource:'image-studio',prompt,seed,size:Number(find('[name=size]').value),reference:encoded});
+    live();
+    let reply;
+    while (true) {
+      live();
+      if (!ctx.valid()) throw Error('Your account session has ended.');
+      reply = await ctx.files.request('compute-status',{resource:'compute',job:ticket.job});
+      if (reply.state === 'done') break;
+      if (reply.state === 'failed') throw Error('Render failed.');
+      if (reply.state === 'uncertain') throw Error('Worker disconnected. Your job is awaiting confirmation.');
+      status.textContent = reply.state === 'queued' ? 'Queued…' : 'Rendering…';
+      await new Promise(resolve => setTimeout(resolve,1500));
+    }
     live();
     if (!ctx.valid() || reply.seed !== seed || typeof reply.png !== 'string' || reply.png.length > 7*1024*1024) throw Error('Invalid render response.');
     const bytes = Uint8Array.from(atob(reply.png),c=>c.charCodeAt(0));
@@ -139,7 +151,7 @@ export function mount(host = {}) {
   action('save').addEventListener('click',run(async()=>{
     const folder = await storage.pickAccountFile({foldersOnly:true,signal});
     if (folder == null) return;
-    const name = await host.ui.prompt('Name the PNG file',{title:'Save PNG',value:'Image Studio.png',signal});
+    const name = await host.ui.prompt('Name the PNG file',{title:'Save PNG',value:'Image Studio.png',confirmLabel:'Save',signal});
     if (name == null) return;
     if (!name.trim() || name.startsWith('.') || /[\/\\\x00-\x1f]/.test(name)) throw Error('Choose a valid filename.');
     const path = [folder.replace(/^\/|\/$/g,''),name.trim().replace(/\.png$/i,'')+'.png'].filter(Boolean).join('/');
